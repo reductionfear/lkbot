@@ -17,36 +17,42 @@ let isWhite = true;
 let timeLimitMs = 50; // Time limit for engine calculations in milliseconds
 
 function initializeChessEngine() {
-  console.log('Initializing Lozza engine (UCI Worker)...');
+  console.log('Initializing Lozza engine (direct mode)...');
   
-  // Create a blob URL for the Lozza worker
-  // We need to import lozza.js from the CDN since it's loaded via @require
-  const lozzaWorkerCode = `
-    // Import lozza.js from GitHub (same as @require)
-    self.importScripts('https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/lozza.js');
-    
-    // The imported lozza.js will handle UCI protocol automatically via onmessage
-  `;
+  // Since lozza.js is loaded via @require, it sets up onmessage on the global scope
+  // We need to create a Worker-like interface to use it
   
-  const blob = new Blob([lozzaWorkerCode], { type: 'application/javascript' });
-  const workerUrl = URL.createObjectURL(blob);
-  const lozzaWorker = new Worker(workerUrl);
+  // Store the message handler
+  let messageHandler = null;
+  
+  // Override the global postMessage to capture Lozza's responses
+  const originalPostMessage = typeof window.postMessage === 'function' ? window.postMessage.bind(window) : null;
+  window.postMessage = function(message, targetOrigin) {
+    // Check if this is a Lozza message (string format)
+    if (typeof message === 'string' && messageHandler) {
+      messageHandler(message);
+    } else if (originalPostMessage && targetOrigin !== undefined) {
+      // Pass through other postMessage calls
+      originalPostMessage(message, targetOrigin);
+    }
+  };
   
   // Initialize Lozza with UCI commands
-  lozzaWorker.postMessage("uci");
-  lozzaWorker.postMessage("ucinewgame");
-  lozzaWorker.postMessage("setoption name Hash value 16");
+  if (typeof window.onmessage === 'function') {
+    window.onmessage({data: "uci"});
+    window.onmessage({data: "ucinewgame"});
+    window.onmessage({data: "setoption name Hash value 16"});
+  }
   
   // Create engine wrapper with UCI interface
   chessEngine = {
     postMessage: function(cmd) {
-      lozzaWorker.postMessage(cmd);
+      if (typeof window.onmessage === 'function') {
+        window.onmessage({data: cmd});
+      }
     },
     set onmessage(handler) {
-      lozzaWorker.onmessage = function(e) {
-        // Lozza sends data as e.data, convert to string format for consistency
-        handler(e.data);
-      };
+      messageHandler = handler;
     }
   };
 }
