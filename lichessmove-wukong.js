@@ -19,8 +19,9 @@ let timeLimitMs = 50; // Time limit for engine calculations in milliseconds
 function initializeChessEngine() {
   console.log('Initializing Wukong engine (custom API)...');
   
-  // Create Wukong engine instance (doesn't need board size for calculations)
-  const wukong = new Engine(8, '#f0d9b5', '#b58863', '#646f40');
+  // Create Wukong engine instance with dummy GUI parameters for headless operation
+  // Parameters: boardSize, lightSquare, darkSquare, selectColor
+  const wukong = new Engine(64, '#f0d9b5', '#b58863', '#646f40');
   
   // Set hash table size (16 MB)
   wukong.setHashSize(16);
@@ -111,7 +112,7 @@ function initializeChessEngine() {
                 messageHandler('bestmove 0000');
               }
             }
-          }, 1);
+          }, 10); // Increase timeout to 10ms to ensure proper async execution
         } else if (cmd.startsWith('setoption name Hash value ')) {
           // Set hash table size
           const hashMatch = cmd.match(/setoption name Hash value (\d+)/);
