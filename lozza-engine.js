@@ -31,3 +31,8 @@ function createLozzaEngine() {
     }
   };
 }
+
+// Export for use in lichessmove.js
+if (typeof window !== 'undefined') {
+  window.createLozzaEngine = createLozzaEngine;
+}
