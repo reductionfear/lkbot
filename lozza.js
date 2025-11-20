@@ -4,7 +4,11 @@
 
 const BUILD = "5";
 
-const net_weights_file = 'quantised.bin';
+// Allow override from global scope (for browser/Tampermonkey environments)
+// Set global.NET_WEIGHTS_PATH or self.NET_WEIGHTS_PATH before importing lozza.js
+const net_weights_file = (typeof self !== 'undefined' && self.NET_WEIGHTS_PATH) || 
+                         (typeof global !== 'undefined' && global.NET_WEIGHTS_PATH) || 
+                         'quantised.bin';
 
 const net_quantise_a  = 255;
 const net_quantise_b  = 64;
