@@ -8,6 +8,9 @@
 // @require      https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/stockfish8.js
 // @require      https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/lozza.js
 // @require      https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/wukong.js
+// @require      https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/stockfish-engine.js
+// @require      https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/lozza-engine.js
+// @require      https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/wukong-engine.js
 // ==/UserScript==
 
 // Configuration: Select which engine to use ('stockfish', 'lozza', or 'wukong')
@@ -27,75 +30,24 @@ function initializeChessEngine() {
   
   switch(engineType) {
     case 'stockfish':
-      chessEngine = window.STOCKFISH();
-      chessEngine.postMessage("setoption name Skill Level value 10");
-      chessEngine.postMessage("setoption name Hash value 1");
-      chessEngine.postMessage("setoption name Threads value 1");
+      // Use the Stockfish engine wrapper (emscripten-based)
+      chessEngine = window.createStockfishEngine();
       break;
       
     case 'lozza':
-      // Create a Worker-like interface for Lozza
-      // Since lozza.js is already loaded, we can create a Worker from it
-      const lozzaBlob = new Blob([
-        `importScripts('https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/lozza.js');`
-      ], {type: 'application/javascript'});
-      const lozzaWorker = new Worker(URL.createObjectURL(lozzaBlob));
-      
-      chessEngine = {
-        postMessage: function(cmd) {
-          lozzaWorker.postMessage(cmd);
-        },
-        set onmessage(handler) {
-          lozzaWorker.onmessage = function(e) {
-            handler(e.data);
-          };
-        }
-      };
+      // Use the Lozza engine wrapper (UCI Worker)
+      chessEngine = window.createLozzaEngine();
       break;
       
     case 'wukong':
-      // Wukong doesn't use UCI protocol, so we need to wrap it
-      // Create engine instance
-      const wukongEngine = new Engine(8, '#f0d9b5', '#b58863', '#646f40');
-      
-      chessEngine = {
-        postMessage: function(cmd) {
-          // Parse UCI commands and translate to Wukong API
-          if (cmd.startsWith('position fen ')) {
-            const fen = cmd.substring('position fen '.length);
-            wukongEngine.setBoard(fen);
-          } else if (cmd.startsWith('go ')) {
-            // Extract depth or time parameters
-            const depthMatch = cmd.match(/depth (\d+)/);
-            const timeMatch = cmd.match(/movetime (\d+)/);
-            
-            const depth = depthMatch ? parseInt(depthMatch[1]) : 3;
-            const time = timeMatch ? parseInt(timeMatch[1]) : 50;
-            
-            // Search for best move
-            setTimeout(() => {
-              const move = wukongEngine.search(depth);
-              if (move && this._onmessageHandler) {
-                // Convert move to UCI format (e.g., "e2e4")
-                this._onmessageHandler('bestmove ' + move.string);
-              }
-            }, time);
-          }
-        },
-        set onmessage(handler) {
-          this._onmessageHandler = handler;
-        },
-        _onmessageHandler: null
-      };
+      // Use the Wukong engine wrapper (custom API with UCI translation)
+      chessEngine = window.createWukongEngine();
       break;
       
     default:
       console.error('Unknown engine type:', ENGINE_TYPE);
       console.log('Falling back to Stockfish engine...');
-      chessEngine = window.STOCKFISH();
-      chessEngine.postMessage("setoption name Skill Level value 10");
-      chessEngine.postMessage("setoption name Hash value 1");
-      chessEngine.postMessage("setoption name Threads value 1");
+      chessEngine = window.createStockfishEngine();
   }
 }
 
