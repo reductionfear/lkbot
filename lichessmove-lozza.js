@@ -19,36 +19,51 @@ let timeLimitMs = 50; // Time limit for engine calculations in milliseconds
 function initializeChessEngine() {
   console.log('Initializing Lozza engine (direct mode)...');
   
-  // Since lozza.js is loaded via @require, it sets up onmessage on the global scope
-  // We need to create a Worker-like interface to use it
+  // Since lozza.js is loaded via @require, it provides uciExec function directly
+  // We need to intercept postMessage to capture Lozza's responses
   
   // Store the message handler
   let messageHandler = null;
   
-  // Override the global postMessage to capture Lozza's responses
-  const originalPostMessage = typeof window.postMessage === 'function' ? window.postMessage.bind(window) : null;
+  // Save the original postMessage function (if it exists and is a function)
+  const originalPostMessage = typeof postMessage === 'function' ? postMessage : null;
+  
+  // Override postMessage to capture Lozza's UCI responses
+  // Lozza calls postMessage(string) to send UCI responses
   window.postMessage = function(message, targetOrigin) {
-    // Check if this is a Lozza message (string format)
-    if (typeof message === 'string' && messageHandler) {
+    // Check if this is a Lozza UCI message (string without targetOrigin)
+    if (typeof message === 'string' && targetOrigin === undefined && messageHandler) {
+      // This is a Lozza response
       messageHandler(message);
-    } else if (originalPostMessage && targetOrigin !== undefined) {
-      // Pass through other postMessage calls
-      originalPostMessage(message, targetOrigin);
+    } else if (originalPostMessage && typeof message === 'object') {
+      // This is a regular window.postMessage call for cross-window communication
+      originalPostMessage.call(window, message, targetOrigin);
     }
   };
   
-  // Initialize Lozza with UCI commands
-  if (typeof window.onmessage === 'function') {
-    window.onmessage({data: "uci"});
-    window.onmessage({data: "ucinewgame"});
-    window.onmessage({data: "setoption name Hash value 16"});
+  // Make postMessage available globally for Lozza
+  if (typeof window.postMessage !== 'function') {
+    window.postMessage = function(message) {
+      if (messageHandler) {
+        messageHandler(message);
+      }
+    };
+  }
+  
+  // Initialize Lozza with UCI commands using uciExec
+  if (typeof uciExec === 'function') {
+    uciExec("uci");
+    uciExec("ucinewgame");
+    uciExec("setoption name Hash value 16");
   }
   
   // Create engine wrapper with UCI interface
   chessEngine = {
     postMessage: function(cmd) {
-      if (typeof window.onmessage === 'function') {
-        window.onmessage({data: cmd});
+      if (typeof uciExec === 'function') {
+        uciExec(cmd);
+      } else {
+        console.error('uciExec function not found - lozza.js may not be loaded');
       }
     },
     set onmessage(handler) {
