@@ -6,6 +6,7 @@
 // @run-at       document-start
 // @grant        none
 // @require      https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/lozza.js
+// @require      https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/lozza-engine.js
 // ==/UserScript==
 
 let chessEngine;
@@ -17,59 +18,10 @@ let isWhite = true;
 let timeLimitMs = 50; // Time limit for engine calculations in milliseconds
 
 function initializeChessEngine() {
-  console.log('Initializing Lozza engine (direct mode)...');
+  console.log('Initializing Lozza engine (UCI Worker)...');
   
-  // Since lozza.js is loaded via @require, it provides uciExec function directly
-  // We need to intercept postMessage to capture Lozza's responses
-  
-  // Store the message handler
-  let messageHandler = null;
-  
-  // Save the original postMessage function (if it exists and is a function)
-  const originalPostMessage = typeof postMessage === 'function' ? postMessage : null;
-  
-  // Override postMessage to capture Lozza's UCI responses
-  // Lozza calls postMessage(string) to send UCI responses
-  window.postMessage = function(message, targetOrigin) {
-    // Check if this is a Lozza UCI message (string without targetOrigin)
-    if (typeof message === 'string' && targetOrigin === undefined && messageHandler) {
-      // This is a Lozza response
-      messageHandler(message);
-    } else if (originalPostMessage && typeof message === 'object') {
-      // This is a regular window.postMessage call for cross-window communication
-      originalPostMessage.call(window, message, targetOrigin);
-    }
-  };
-  
-  // Make postMessage available globally for Lozza
-  if (typeof window.postMessage !== 'function') {
-    window.postMessage = function(message) {
-      if (messageHandler) {
-        messageHandler(message);
-      }
-    };
-  }
-  
-  // Initialize Lozza with UCI commands using uciExec
-  if (typeof uciExec === 'function') {
-    uciExec("uci");
-    uciExec("ucinewgame");
-    uciExec("setoption name Hash value 16");
-  }
-  
-  // Create engine wrapper with UCI interface
-  chessEngine = {
-    postMessage: function(cmd) {
-      if (typeof uciExec === 'function') {
-        uciExec(cmd);
-      } else {
-        console.error('uciExec function not found - lozza.js may not be loaded');
-      }
-    },
-    set onmessage(handler) {
-      messageHandler = handler;
-    }
-  };
+  // Use the worker-based Lozza wrapper (same pattern as Stockfish)
+  chessEngine = window.createLozzaEngine();
 }
 
 function completeFen(partialFen) {

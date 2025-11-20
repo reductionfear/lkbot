@@ -52,13 +52,28 @@ The code is best read using a folding editor. Start/end fold markers are ```/*{{
 
 #### Basic use in a browser
 
-All you need is ```lozza.js``` from the latest ```lozzaN.zip``` release.  
+The `lozza.js` file in this repository is browser-safe and can be used in Web Workers or Tampermonkey userscripts without Node.js dependencies.
 
-https://github.com/op12no2/lozza/releases
+**Using the worker wrapper (recommended):**
 
-Here is a little example to do a 10 ply search:-
+```javascript
+// Load lozza.js and lozza-engine.js via script tags or @require
+// Then create an engine instance:
+const engine = window.createLozzaEngine();
 
-```Javascript
+engine.onmessage = function(data) {
+  console.log(data);  // UCI responses as strings
+};
+
+engine.postMessage('uci');
+engine.postMessage('ucinewgame');
+engine.postMessage('position startpos');
+engine.postMessage('go depth 10');
+```
+
+**Direct worker usage:**
+
+```javascript
 var lozza = new Worker('lozza.js');      
 
 lozza.onmessage = function (e) {
@@ -71,6 +86,13 @@ lozza.postMessage('ucinewgame');         // reset tt
 lozza.postMessage('position startpos');
 lozza.postMessage('go depth 10');        // 10 ply search
 ```
+
+**Note about NNUE weights:** The browser build in this repository runs without NNUE evaluation weights by default. The engine uses a zero-initialized buffer as fallback, making it functional but significantly weaker. For full strength, you need to:
+1. Obtain or train the `quantised.bin` weights file
+2. Convert it to hex format
+3. Populate the `WEIGHTS_HEX` constant in `lozza.js`
+
+For the original Lozza releases with weights included, see: https://github.com/op12no2/lozza/releases
 
 Try this example here:-
 
@@ -115,11 +137,11 @@ Each UserScript is self-contained and includes:
   - **Status:** ✅ Working - Uses WebAssembly compiled engine
 
 - **lichessmove-lozza.js**: 
-  - Single @require: lozza.js (Pure JavaScript)
-  - Direct function calls to `uciExec` (exposed when loaded via @require)
-  - Intercepts `postMessage` to capture UCI responses
+  - Dual @require: lozza.js (Pure JavaScript) + lozza-engine.js (Worker wrapper)
+  - Uses worker-based UCI engine interface via `createLozzaEngine()`
+  - Matches the Stockfish-style engine pattern for consistency
   - Configures hash table (16MB)
-  - **Status:** ✅ Fixed - Now uses direct function access instead of Worker
+  - **Status:** ✅ Updated - Now uses worker-based wrapper with browser-safe lozza.js
 
 - **lichessmove-wukong.js**: 
   - Single @require: wukong.js (Pure JavaScript)
@@ -127,7 +149,46 @@ Each UserScript is self-contained and includes:
   - Translates UCI commands to Wukong's custom API (setBoard, search, moveToString)
   - **Status:** ✅ Fixed - Now properly instantiates Engine with correct parameters
 
-### Recent Fixes (December 2024)
+### Recent Fixes (November 2024)
+
+**Browser-Safe Lozza Engine Integration**
+
+The Lozza engine has been updated to work cleanly in browser/Tampermonkey environments without Node.js dependencies:
+
+1. **lozza.js is now browser-safe:**
+   - Changed `NET_LOCAL` from `0` to `1` to avoid Node.js `fs.readFileSync` calls
+   - Updated `getWeightsBuffer()` to:
+     - Guard all `fs` operations with proper Node environment checks
+     - Provide zero-initialized fallback buffer (394,754 bytes) when NNUE weights are unavailable
+     - Warn users about missing weights and reduced strength
+   - Guarded all Node-only operations (`process.exit`, `process.stdout.write`, `fs.writeFileSync`) with `nodeHost` checks
+   - Engine can now be imported via `importScripts()` in Web Workers without errors
+
+2. **lozza-engine.js provides consistent UCI interface:**
+   - Creates a Web Worker that imports lozza.js dynamically
+   - Tries local path first, then falls back to GitHub CDN
+   - Returns an engine object with `postMessage()` and `onmessage` interface matching Stockfish wrapper
+   - Initializes with standard UCI commands (`uci`, `ucinewgame`, hash configuration)
+
+3. **lichessmove-lozza.js aligned with Stockfish pattern:**
+   - Now uses `createLozzaEngine()` instead of direct `uciExec` calls
+   - Removed `postMessage` interception workaround
+   - Cleaner, more maintainable implementation matching `lichessmove-stockfish.js`
+
+**NNUE Weights Note:** The browser build runs without NNUE weights by default (using zero-initialized buffer). This makes the engine significantly weaker but functional. To enable full strength:
+- Convert `quantised.bin` to hex format
+- Populate the `WEIGHTS_HEX` constant in `lozza.js` with the hex string
+- See Lozza documentation for details on generating weights
+
+**Test Results:** All browser integration tests pass successfully:
+- ✅ Direct `importScripts()` of lozza.js works without Node.js errors
+- ✅ Worker-based engine wrapper creates successfully
+- ✅ UCI protocol commands (`uci`, `isready`, `position`, `go`) work correctly
+- ✅ Engine produces valid `bestmove` responses
+
+![Lozza Browser Test Results](https://github.com/user-attachments/assets/9c4c0c9e-86bc-4728-9e43-39c676dcd299)
+
+### December 2024 Fixes
 
 **Problem:** Lozza and Wukong engines were unable to read or send moves because their integration code assumed a Web Worker environment, but userscripts load engines directly into the page context.
 
