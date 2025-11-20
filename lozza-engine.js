@@ -8,10 +8,28 @@ function createLozzaEngine() {
   console.log('Initializing Lozza engine (UCI Worker)...');
   
   // Create a blob URL for the Lozza worker
-  // We need to import lozza.js from the CDN since it's loaded via @require
+  // Try local path first, then fall back to GitHub CDN
   const lozzaWorkerCode = `
-    // Import lozza.js from GitHub (same as @require)
-    self.importScripts('https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/lozza.js');
+    // Import lozza.js - try local path first, then GitHub
+    const lozzaUrls = [
+      '${window.location.origin}/lozza.js',
+      'https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/lozza.js'
+    ];
+    
+    let loaded = false;
+    for (const url of lozzaUrls) {
+      try {
+        self.importScripts(url);
+        loaded = true;
+        break;
+      } catch (e) {
+        // Try next URL
+      }
+    }
+    
+    if (!loaded) {
+      throw new Error('Failed to load lozza.js from any source');
+    }
     
     // The imported lozza.js will handle UCI protocol automatically via onmessage
   `;
