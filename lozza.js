@@ -10,7 +10,7 @@ const BUILD = "9";
 // See https://github.com/op12no2/lozza/wiki/Making-a-release.
 //
 
-const NET_LOCAL        = 0;
+const NET_LOCAL        = 1;  // Changed to 1 for browser-safe builds (use WEIGHTS_HEX instead of fs)
 const NET_NAME         = 'farm1';
 const NET_SB           = '500';
 const NET_WEIGHTS_FILE = '/home/xyzzy/lozza/nets/' + NET_NAME + '/lozza-' + NET_SB + '/quantised.bin';
@@ -1847,9 +1847,16 @@ function perft (node, depth, turn) {
 //
 // Generate FENs in bullet text format.
 // Assumes existence of ./data.
+// Node-only command - requires fs module.
 //
 
 function datagen() {
+
+  // Guard for Node-only operation
+  if (!nodeHost || typeof fs === 'undefined' || fs === 0) {
+    uciSend('datagen command requires Node.js environment with fs module');
+    return;
+  }
 
   uciExec("bench warm 0");
 
@@ -2100,22 +2107,39 @@ const WEIGHTS_HEX = `
 
 function getWeightsBuffer() {
 
-  if (NET_LOCAL === 0)
-    return fs.readFileSync(NET_WEIGHTS_FILE);
+  // Guard fs operations for Node-only builds
+  if (NET_LOCAL === 0) {
+    if (typeof fs !== 'undefined' && fs !== 0 && fs.readFileSync) {
+      return fs.readFileSync(NET_WEIGHTS_FILE);
+    }
+    // Browser fallback - shouldn't reach here if NET_LOCAL is set correctly
+    console.warn('NET_LOCAL=0 but fs not available (browser environment). Using fallback zero buffer.');
+  }
 
   const hex = WEIGHTS_HEX.replace(/\s+/g, "");
 
-  if (typeof Buffer !== 'undefined' && Buffer.from) {
-    return Buffer.from(hex, 'hex');
+  // If we have weights in hex format, use them
+  if (hex.length > 0) {
+    if (typeof Buffer !== 'undefined' && Buffer.from) {
+      return Buffer.from(hex, 'hex');
+    }
+
+    const n = hex.length >> 1;
+    const bytes = new Uint8Array(n);
+    for (let i = 0, j = 0; j < n; i += 2, j++) {
+      bytes[j] = parseInt(hex.slice(i, i + 2), 16);
+    }
+
+    return bytes;
   }
 
-  const n = hex.length >> 1;
-  const bytes = new Uint8Array(n);
-  for (let i = 0, j = 0; j < n; i += 2, j++) {
-    bytes[j] = parseInt(hex.slice(i, i + 2), 16);
-  }
-
-  return bytes;
+  // Fallback: return a zero-initialized buffer of the correct size
+  // Size calculation: (NET_I_SIZE * NET_H1_SIZE + NET_H1_SIZE + NET_H1_SIZE * 2 + 1) * 2 bytes (Int16)
+  // = (768 * 256 + 256 + 512 + 1) * 2 = 197377 * 2 = 394754 bytes
+  const requiredSize = (NET_I_SIZE * NET_H1_SIZE + NET_H1_SIZE + NET_H1_SIZE * 2 + 1) * 2;
+  console.warn('No NNUE weights available (WEIGHTS_HEX is empty). Using zero-initialized buffer.');
+  console.warn('Engine will be significantly weaker. To use NNUE, populate WEIGHTS_HEX with quantised.bin hex data.');
+  return new Uint8Array(requiredSize);
 
 }
 
@@ -4902,7 +4926,9 @@ function uciExec (commands) {
       case 'q': {
         //{{{  quit
         
-        process.exit();
+        if (nodeHost && typeof process !== 'undefined' && process.exit) {
+          process.exit();
+        }
         
         break;
         
@@ -5016,7 +5042,10 @@ function uciExec (commands) {
         
           const fen = BENCHFENS[i];
         
-          process.stdout.write(i.toString() + '\r');
+          // Only use process.stdout in Node environment
+          if (nodeHost && typeof process !== 'undefined' && process.stdout) {
+            process.stdout.write(i.toString() + '\r');
+          }
         
           newGame();
           uciExec('position fen ' + fen);
