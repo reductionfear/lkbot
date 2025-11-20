@@ -4,28 +4,31 @@ A fully automated Lichess bot with support for multiple chess engines: Stockfish
 
 ## Features
 
-- **Multi-Engine Support**: Choose between three powerful chess engines
+- **Multi-Engine Support**: Three separate UserScripts, each optimized for a specific chess engine
   - **Stockfish8**: Strong UCI-compliant engine
   - **Lozza**: UCI Javascript chess engine with [NNUE evaluation](https://github.com/op12no2/lozza/wiki/Lozza's-net)
   - **Wukong**: JavaScript chess engine by Code Monkey King
 - **Automated Play**: Fully automated gameplay on Lichess.org
-- **Easy Configuration**: Simple engine selection via configuration constant
+- **Simple Setup**: Each UserScript is self-contained with a single @require
 
 ## Usage
 
 ### Installing the UserScript
 
 1. Install a userscript manager in your browser (e.g., Tampermonkey, Violentmonkey)
-2. Install the script from `lichessmove.js`
+2. Choose and install ONE of the following scripts:
+   - `lichessmove-stockfish.js` - For Stockfish engine
+   - `lichessmove-lozza.js` - For Lozza engine
+   - `lichessmove-wukong.js` - For Wukong engine
 3. Navigate to https://lichess.org
 
 ### Selecting an Engine
 
-Open `lichessmove.js` and modify the `ENGINE_TYPE` constant at the top:
+Simply install the UserScript for your preferred engine. Each script is dedicated to a single engine:
 
-```javascript
-const ENGINE_TYPE = 'stockfish';  // Options: 'stockfish', 'lozza', 'wukong'
-```
+- **lichessmove-stockfish.js**: Uses only the Stockfish engine
+- **lichessmove-lozza.js**: Uses only the Lozza engine
+- **lichessmove-wukong.js**: Uses only the Wukong engine
 
 ### Engine Characteristics
 
@@ -95,40 +98,41 @@ A JavaScript chess engine by Code Monkey King. Rated approximately 1920 ELO, Wuk
 
 ## Technical Details
 
-Each engine has its own wrapper script that provides a consistent UCI interface:
+Each UserScript is self-contained and includes:
 
-### Engine Wrappers
+1. **Engine Integration**: Built-in wrapper code that interfaces with the engine
+2. **Single Dependency**: Only requires the chess engine JavaScript file
+3. **Lichess Bot Logic**: Complete WebSocket interception and game automation
 
-- **stockfish-engine.js**: Wraps the emscripten-compiled Stockfish engine
-  - Uses `window.STOCKFISH()` to create the engine instance
+### Engine-Specific Scripts
+
+- **lichessmove-stockfish.js**: 
+  - Single @require: stockfish8.js
+  - Built-in Stockfish wrapper (emscripten-compiled engine interface)
   - Configures default settings (Skill Level 10, Hash 16MB, 1 thread)
-  - Provides Worker-like interface with `postMessage()` and `onmessage`
 
-- **lozza-engine.js**: Wraps the Lozza UCI JavaScript engine
-  - Creates a Web Worker that imports lozza.js
-  - Handles UCI protocol communication
+- **lichessmove-lozza.js**: 
+  - Single @require: lozza.js
+  - Built-in Lozza wrapper (Web Worker with UCI protocol)
   - Configures hash table (16MB)
 
-- **wukong-engine.js**: Wraps Wukong with UCI translation layer
+- **lichessmove-wukong.js**: 
+  - Single @require: wukong.js
+  - Built-in Wukong wrapper with UCI translation layer
   - Translates UCI commands to Wukong's custom API
-  - Handles position setup (FEN and moves)
-  - Implements search with depth and time control
-  - Converts moves to UCI format
 
 ### Integration
 
-The bot intercepts WebSocket communication with Lichess to:
+Each bot intercepts WebSocket communication with Lichess to:
 1. Receive position updates (FEN strings)
 2. Calculate best moves using the selected engine
 3. Send moves back to the Lichess server
 
-All engines provide a consistent interface:
+All engine wrappers provide a consistent UCI interface:
 ```javascript
-engine.postMessage(command);  // Send UCI commands
-engine.onmessage = handler;   // Receive responses
+chessEngine.postMessage(command);  // Send UCI commands
+chessEngine.onmessage = handler;   // Receive responses
 ```
-
-This abstraction allows seamless switching between engines by changing the `ENGINE_TYPE` constant.
 
 ## Acknowledgements
 
