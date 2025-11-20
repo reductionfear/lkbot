@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Lichess Bot (stockfish8) 2
+// @name         lichessmove
 // @description  Fully automated lichess bot
 // @author       Nuro
 // @match        *://lichess.org/*
