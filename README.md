@@ -87,10 +87,7 @@ lozza.postMessage('position startpos');
 lozza.postMessage('go depth 10');        // 10 ply search
 ```
 
-**Note about NNUE weights:** The browser build in this repository runs without NNUE evaluation weights by default. The engine uses a zero-initialized buffer as fallback, making it functional but significantly weaker. For full strength, you need to:
-1. Obtain or train the `quantised.bin` weights file
-2. Convert it to hex format
-3. Populate the `WEIGHTS_HEX` constant in `lozza.js`
+**Note about NNUE weights:** The Lozza engine now automatically loads the `quantised.bin` NNUE evaluation weights from GitHub when running in a browser/Tampermonkey environment. This provides full-strength evaluation without requiring manual weight conversion. The `lozza-engine.js` wrapper sets the correct path to fetch weights from the repository, ensuring optimal performance.
 
 For the original Lozza releases with weights included, see: https://github.com/op12no2/lozza/releases
 
@@ -151,6 +148,27 @@ Each UserScript is self-contained and includes:
 
 ### Recent Fixes (November 2024)
 
+**Lozza NNUE Weights Integration (November 2024)**
+
+The Lozza engine now automatically loads quantised.bin NNUE weights from GitHub:
+
+1. **lozza.js supports NET_WEIGHTS_PATH override:**
+   - Added support for `self.NET_WEIGHTS_PATH` global variable
+   - Allows overriding the weights file path before importing lozza.js
+   - Falls back to local 'quantised.bin' if not set
+   - Enables full-strength NNUE evaluation in browser/Tampermonkey environments
+
+2. **lozza-engine.js sets weights path automatically:**
+   - Sets `NET_WEIGHTS_PATH` to GitHub URL before importing lozza.js
+   - Engine fetches quantised.bin (197KB) directly from repository
+   - No manual weight conversion or hex encoding needed
+   - Matches Stockfish-style engine pattern for consistency
+
+3. **Benefits:**
+   - Full-strength Lozza evaluation in browser environments
+   - Simple, automated setup - no user configuration required
+   - Clean integration following established patterns
+
 **Browser-Safe Lozza Engine Integration**
 
 The Lozza engine has been updated to work cleanly in browser/Tampermonkey environments without Node.js dependencies:
@@ -174,11 +192,6 @@ The Lozza engine has been updated to work cleanly in browser/Tampermonkey enviro
    - Now uses `createLozzaEngine()` instead of direct `uciExec` calls
    - Removed `postMessage` interception workaround
    - Cleaner, more maintainable implementation matching `lichessmove-stockfish.js`
-
-**NNUE Weights Note:** The browser build runs without NNUE weights by default (using zero-initialized buffer). This makes the engine significantly weaker but functional. To enable full strength:
-- Convert `quantised.bin` to hex format
-- Populate the `WEIGHTS_HEX` constant in `lozza.js` with the hex string
-- See Lozza documentation for details on generating weights
 
 **Test Results:** All browser integration tests pass successfully:
 - ✅ Direct `importScripts()` of lozza.js works without Node.js errors
