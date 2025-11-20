@@ -2,6 +2,8 @@
 
 A fully automated Lichess bot with support for multiple chess engines: Stockfish8, Lozza, and Wukong.
 
+**Note:** This bot now properly integrates all three engines by adapting them to work in the userscript environment. Lozza and Wukong are pure JavaScript engines that are called directly, while Stockfish8 is WebAssembly-based.
+
 ## Features
 
 - **Multi-Engine Support**: Three separate UserScripts, each optimized for a specific chess engine
@@ -107,19 +109,33 @@ Each UserScript is self-contained and includes:
 ### Engine-Specific Scripts
 
 - **lichessmove-stockfish.js**: 
-  - Single @require: stockfish8.js
-  - Built-in Stockfish wrapper (emscripten-compiled engine interface)
+  - Single @require: stockfish8.js (Emscripten/WebAssembly)
+  - Built-in Stockfish wrapper (Worker-like interface provided by Emscripten)
   - Configures default settings (Skill Level 10, Hash 16MB, 1 thread)
+  - **Status:** ✅ Working - Uses WebAssembly compiled engine
 
 - **lichessmove-lozza.js**: 
-  - Single @require: lozza.js
-  - Built-in Lozza wrapper (Web Worker with UCI protocol)
+  - Single @require: lozza.js (Pure JavaScript)
+  - Direct function calls to `uciExec` (exposed when loaded via @require)
+  - Intercepts `postMessage` to capture UCI responses
   - Configures hash table (16MB)
+  - **Status:** ✅ Fixed - Now uses direct function access instead of Worker
 
 - **lichessmove-wukong.js**: 
-  - Single @require: wukong.js
-  - Built-in Wukong wrapper with UCI translation layer
-  - Translates UCI commands to Wukong's custom API
+  - Single @require: wukong.js (Pure JavaScript)
+  - Creates `Engine` instance with UCI translation layer
+  - Translates UCI commands to Wukong's custom API (setBoard, search, moveToString)
+  - **Status:** ✅ Fixed - Now properly instantiates Engine with correct parameters
+
+### Recent Fixes (December 2024)
+
+**Problem:** Lozza and Wukong engines were unable to read or send moves because their integration code assumed a Web Worker environment, but userscripts load engines directly into the page context.
+
+**Solution:**
+1. **Lozza:** Changed to call `uciExec()` function directly (exposed in global scope) and intercept `postMessage` for responses
+2. **Wukong:** Fixed Engine constructor call with proper parameters and improved async handling
+
+These engines now work like Stockfish does - they can read positions from Lichess and send back moves properly.
 
 ### Integration
 
