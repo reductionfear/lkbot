@@ -1,0 +1,284 @@
+// ==UserScript==
+// @name         lichessmove-wukong
+// @description  Fully automated lichess bot with Wukong engine
+// @author       Nuro
+// @match        *://lichess.org/*
+// @run-at       document-start
+// @grant        none
+// @require      https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/wukong.js
+// ==/UserScript==
+
+let chessEngine;
+let currentFen = "";
+let bestMove;
+let webSocketWrapper = null;
+let gameId = null;
+let isWhite = true;
+let timeLimitMs = 50; // Time limit for engine calculations in milliseconds
+
+function initializeChessEngine() {
+  console.log('Initializing Wukong engine (custom API)...');
+  
+  // Create Wukong engine instance (doesn't need board size for calculations)
+  const wukong = new Engine(8, '#f0d9b5', '#b58863', '#646f40');
+  
+  // Set hash table size (16 MB)
+  wukong.setHashSize(16);
+  
+  // Message handler storage
+  let messageHandler = null;
+  
+  // UCI to Wukong command translator
+  chessEngine = {
+    postMessage: function(cmd) {
+      try {
+        // Parse UCI commands and translate to Wukong API
+        if (cmd === 'uci') {
+          // Respond with engine identification
+          if (messageHandler) {
+            messageHandler('id name Wukong ' + wukong.VERSION);
+            messageHandler('id author Code Monkey King');
+            messageHandler('uciok');
+          }
+        } else if (cmd === 'ucinewgame') {
+          // Reset the engine for a new game
+          wukong.setBoard(wukong.START_FEN);
+          if (messageHandler) {
+            messageHandler('readyok');
+          }
+        } else if (cmd === 'isready') {
+          // Engine is always ready
+          if (messageHandler) {
+            messageHandler('readyok');
+          }
+        } else if (cmd.startsWith('position fen ')) {
+          // Extract FEN string and set board position
+          const fenMatch = cmd.match(/^position fen (.+?)(?:\s+moves\s+(.+))?$/);
+          if (fenMatch) {
+            const fen = fenMatch[1];
+            const moves = fenMatch[2];
+            
+            // Set the board position
+            wukong.setBoard(fen);
+            
+            // Apply moves if present
+            if (moves) {
+              wukong.loadMoves(moves);
+            }
+          }
+        } else if (cmd.startsWith('position startpos')) {
+          // Set starting position
+          const movesMatch = cmd.match(/^position startpos(?:\s+moves\s+(.+))?$/);
+          wukong.setBoard(wukong.START_FEN);
+          
+          // Apply moves if present
+          if (movesMatch && movesMatch[1]) {
+            wukong.loadMoves(movesMatch[1]);
+          }
+        } else if (cmd.startsWith('go ')) {
+          // Parse search parameters
+          const depthMatch = cmd.match(/depth\s+(\d+)/);
+          const timeMatch = cmd.match(/movetime\s+(\d+)/);
+          
+          // Default to depth 3 or extract from command
+          let depth = depthMatch ? parseInt(depthMatch[1]) : 3;
+          const movetime = timeMatch ? parseInt(timeMatch[1]) : 100;
+          
+          // Set time control if movetime is specified
+          if (timeMatch) {
+            wukong.setTimeControl({
+              timeSet: 1,
+              stopTime: Date.now() + movetime,
+              stopped: 0,
+              time: movetime
+            });
+          }
+          
+          // Execute search asynchronously to not block
+          setTimeout(() => {
+            try {
+              const bestMove = wukong.search(depth);
+              
+              if (bestMove && messageHandler) {
+                // Convert move to UCI string format
+                const moveStr = wukong.moveToString(bestMove);
+                messageHandler('bestmove ' + moveStr);
+              }
+            } catch (error) {
+              console.error('Wukong search error:', error);
+              // Send a fallback response
+              if (messageHandler) {
+                messageHandler('bestmove 0000');
+              }
+            }
+          }, 1);
+        } else if (cmd.startsWith('setoption name Hash value ')) {
+          // Set hash table size
+          const hashMatch = cmd.match(/setoption name Hash value (\d+)/);
+          if (hashMatch) {
+            const hashSize = parseInt(hashMatch[1]);
+            wukong.setHashSize(hashSize);
+          }
+        }
+        // Ignore other UCI commands that don't apply to Wukong
+      } catch (error) {
+        console.error('Wukong command error:', error, 'Command:', cmd);
+      }
+    },
+    
+    set onmessage(handler) {
+      messageHandler = handler;
+    }
+  };
+}
+
+function completeFen(partialFen) {
+    // Complete a partial FEN string to support castling
+    // A full FEN has 6 parts: pieces, turn, castling, en-passant, halfmove, fullmove
+    // Lichess typically sends only the first 2 parts (pieces and turn)
+    
+    let fenParts = partialFen.split(' ');
+    
+    // If we already have a complete FEN, return it
+    if (fenParts.length === 6) {
+        return partialFen;
+    }
+    
+    // Add castling rights (assume all castling is available)
+    if (fenParts.length === 2) {
+        fenParts.push('KQkq'); // Castling availability
+    }
+    
+    // Add en passant target square (- means no en passant)
+    if (fenParts.length === 3) {
+        fenParts.push('-');
+    }
+    
+    // Add halfmove clock (for 50-move rule, start at 0)
+    if (fenParts.length === 4) {
+        fenParts.push('0');
+    }
+    
+    // Add fullmove number (start at 1)
+    if (fenParts.length === 5) {
+        fenParts.push('1');
+    }
+    
+    return fenParts.join(' ');
+}
+
+function interceptWebSocket() {
+    let webSocket = window.WebSocket;
+    const webSocketProxy = new Proxy(webSocket, {
+        construct: function (target, args) {
+            let wrappedWebSocket = new target(...args);
+            webSocketWrapper = wrappedWebSocket;
+
+            // ---- MODIFICATION START ----
+            wrappedWebSocket.addEventListener("message", function (event) {
+                let message;
+                try {
+                    message = JSON.parse(event.data);
+                } catch (e) {
+                    return; // Ignore non-JSON messages
+                }
+
+                // Handle gameFull message for game initialization
+                if (message.type === "gameFull" && message.id) {
+                    gameId = message.id;
+                    isWhite = message.white.id === lichess.socket.settings.userId;
+                    console.log("Game ID:", gameId);
+                    console.log("Playing as white:", isWhite);
+                }
+
+                // Handle game end
+                if (message.type === "gameState" && message.status >= 30) {
+                    handleGameEnd();
+                }
+
+                // Use the message type 't' to decide what to do
+                switch (message.t) {
+                    // This is a "fall-through" case.
+                    // It will execute the same code for both 'd' and 'move' types.
+                    case 'd':
+                    case 'move':
+                        console.log("Received game state/move update:", message.t, message);
+
+                        // The important check: Does this message contain the board state?
+                        if (message.d && typeof message.d.fen === "string") {
+                            currentFen = message.d.fen;
+
+                            // 'ply' is a counter that helps determine whose turn it is.
+                            // If ply is odd, it's Black's turn to move. If even, it's White's.
+                            // The FEN is for the position BEFORE the move in the message,
+                            // so we need to know whose turn it is now.
+                            let isWhitesTurn = message.d.ply % 2 === 0;
+
+                            if (isWhitesTurn) {
+                                currentFen += " w";
+                            } else {
+                                currentFen += " b";
+                            }
+
+                            // Complete the FEN string with castling rights and other fields
+                            // to enable castling moves
+                            currentFen = completeFen(currentFen);
+
+                            // We have the FEN, now calculate the move
+                            calculateMove();
+                        }
+                        break;
+
+                    case 'clockInc':
+                        console.log("Clock increment received. Ignoring.", message.d);
+                        break;
+
+                    case 'crowd':
+                    case 'mlat':
+                        // Also ignore crowd (spectator) and latency updates
+                        break;
+
+                    default:
+                        // Log any other message types for debugging
+                        console.log("Received unhandled message type:", message.t, message);
+                }
+            });
+            // ---- MODIFICATION END ----
+
+            return wrappedWebSocket;
+        }
+    });
+
+    window.WebSocket = webSocketProxy;
+}
+
+function calculateMove() {
+    chessEngine.postMessage("position fen " + currentFen);
+    chessEngine.postMessage(`go depth 2 movetime ${timeLimitMs}`);
+    // chessEngine.postMessage(`go depth 1`); // Uncomment for depth 1 for immediate moves
+}
+
+function setupChessEngineOnMessage() {
+    chessEngine.onmessage = function (event) {
+        if (event && event.includes("bestmove")) {
+            bestMove = event.split(" ")[1];
+            webSocketWrapper.send(JSON.stringify({
+                t: "move",
+                d: { u: bestMove, b: 1, l: 10000, a: 1 }
+            }));
+        }
+    };
+}
+
+function handleGameEnd() {
+    console.log("Game ended, initiating rematch/new opponent...");
+    // Option 1: Rematch
+    // webSocketWrapper.send(JSON.stringify({ t: "rematch", d: gameId }));
+
+    // Option 2: New opponent
+    webSocketWrapper.send(JSON.stringify({ t: 'challenge', d: { dest: 'auto', rated: !1, clock: { limit: 60, increment: 5, emerg: 30 } } }));
+}
+
+initializeChessEngine();
+interceptWebSocket();
+setupChessEngineOnMessage();
