@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         lichessmove
-// @description  Fully automated lichess bot
+// @description  Fully automated lichess bot with multi-engine support
 // @author       Nuro
 // @match        *://lichess.org/*
 // @run-at       document-start
@@ -22,9 +22,11 @@ let isWhite = true;
 let timeLimitMs = 50; // Time limit for engine calculations in milliseconds
 
 function initializeChessEngine() {
-  switch(ENGINE_TYPE.toLowerCase()) {
+  const engineType = ENGINE_TYPE.toLowerCase();
+  console.log(`Initializing ${engineType} engine...`);
+  
+  switch(engineType) {
     case 'stockfish':
-      console.log('Initializing Stockfish engine...');
       chessEngine = window.STOCKFISH();
       chessEngine.postMessage("setoption name Skill Level value 10");
       chessEngine.postMessage("setoption name Hash value 1");
@@ -32,15 +34,59 @@ function initializeChessEngine() {
       break;
       
     case 'lozza':
-      console.log('Initializing Lozza engine...');
       // Create a Worker-like interface for Lozza
-      chessEngine = createLozzaWorker();
+      // Since lozza.js is already loaded, we can create a Worker from it
+      const lozzaBlob = new Blob([
+        `importScripts('https://raw.githubusercontent.com/reductionfear/lkbot/refs/heads/main/lozza.js');`
+      ], {type: 'application/javascript'});
+      const lozzaWorker = new Worker(URL.createObjectURL(lozzaBlob));
+      
+      chessEngine = {
+        postMessage: function(cmd) {
+          lozzaWorker.postMessage(cmd);
+        },
+        set onmessage(handler) {
+          lozzaWorker.onmessage = function(e) {
+            handler(e.data);
+          };
+        }
+      };
       break;
       
     case 'wukong':
-      console.log('Initializing Wukong engine...');
-      // Create a Worker-like interface for Wukong
-      chessEngine = createWukongWorker();
+      // Wukong doesn't use UCI protocol, so we need to wrap it
+      // Create engine instance
+      const wukongEngine = new Engine(8, '#f0d9b5', '#b58863', '#646f40');
+      
+      chessEngine = {
+        postMessage: function(cmd) {
+          // Parse UCI commands and translate to Wukong API
+          if (cmd.startsWith('position fen ')) {
+            const fen = cmd.substring('position fen '.length);
+            wukongEngine.setBoard(fen);
+          } else if (cmd.startsWith('go ')) {
+            // Extract depth or time parameters
+            const depthMatch = cmd.match(/depth (\d+)/);
+            const timeMatch = cmd.match(/movetime (\d+)/);
+            
+            const depth = depthMatch ? parseInt(depthMatch[1]) : 3;
+            const time = timeMatch ? parseInt(timeMatch[1]) : 50;
+            
+            // Search for best move
+            setTimeout(() => {
+              const move = wukongEngine.search(depth);
+              if (move && this._onmessageHandler) {
+                // Convert move to UCI format (e.g., "e2e4")
+                this._onmessageHandler('bestmove ' + move.string);
+              }
+            }, time);
+          }
+        },
+        set onmessage(handler) {
+          this._onmessageHandler = handler;
+        },
+        _onmessageHandler: null
+      };
       break;
       
     default:
@@ -51,59 +97,6 @@ function initializeChessEngine() {
       chessEngine.postMessage("setoption name Hash value 1");
       chessEngine.postMessage("setoption name Threads value 1");
   }
-}
-
-// Create a Worker-like interface for Lozza
-function createLozzaWorker() {
-  const lozzaWorker = new Worker(URL.createObjectURL(new Blob([
-    document.querySelector('script[src*="lozza.js"]').textContent
-  ], {type: 'application/javascript'})));
-  
-  return {
-    postMessage: function(cmd) {
-      lozzaWorker.postMessage(cmd);
-    },
-    set onmessage(handler) {
-      lozzaWorker.onmessage = function(e) {
-        handler(e.data);
-      };
-    }
-  };
-}
-
-// Create a Worker-like interface for Wukong
-function createWukongWorker() {
-  // Wukong doesn't use UCI protocol, so we need to wrap it
-  const wukongEngine = new Engine(8, '#f0d9b5', '#b58863', '#646f40');
-  
-  return {
-    postMessage: function(cmd) {
-      // Parse UCI commands and translate to Wukong API
-      if (cmd.startsWith('position fen ')) {
-        const fen = cmd.substring('position fen '.length);
-        wukongEngine.setBoard(fen);
-      } else if (cmd.startsWith('go ')) {
-        // Extract depth or time parameters
-        const depthMatch = cmd.match(/depth (\d+)/);
-        const timeMatch = cmd.match(/movetime (\d+)/);
-        
-        const depth = depthMatch ? parseInt(depthMatch[1]) : 3;
-        const time = timeMatch ? parseInt(timeMatch[1]) : 50;
-        
-        // Search for best move
-        setTimeout(() => {
-          const move = wukongEngine.search(depth);
-          if (move && this._onmessageHandler) {
-            this._onmessageHandler('bestmove ' + move.string);
-          }
-        }, time);
-      }
-    },
-    set onmessage(handler) {
-      this._onmessageHandler = handler;
-    },
-    _onmessageHandler: null
-  };
 }
 
 function completeFen(partialFen) {
